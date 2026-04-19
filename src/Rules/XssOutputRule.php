@@ -30,6 +30,10 @@ final class XssOutputRule extends Rule
             $lines,
             '/\{!!\s*\$/',
             function (int $lineNo, string $line) use ($filePath): Finding {
+                if ($this->hasExplicitHtmlEscape($line)) {
+                    return null;
+                }
+
                 return $this->finding(
                     severity:    Severity::High,
                     title:       'Unescaped Blade output',
@@ -48,6 +52,10 @@ final class XssOutputRule extends Rule
             $lines,
             '/\b(echo|print)\b[^;]*\$_(GET|POST|REQUEST|COOKIE)\[/',
             function (int $lineNo, string $line) use ($filePath): Finding {
+                if ($this->hasExplicitHtmlEscape($line)) {
+                    return null;
+                }
+
                 return $this->finding(
                     severity:    Severity::Critical,
                     title:       'Superglobal echoed without escaping',
@@ -66,6 +74,10 @@ final class XssOutputRule extends Rule
             $lines,
             '/\b(echo|print)\b[^;]*\$request\s*->\s*(input|get|query|post|all)\s*\(/',
             function (int $lineNo, string $line) use ($filePath): Finding {
+                if ($this->hasExplicitHtmlEscape($line)) {
+                    return null;
+                }
+
                 return $this->finding(
                     severity:    Severity::High,
                     title:       'Request input echoed without escaping',
@@ -98,5 +110,10 @@ final class XssOutputRule extends Rule
         ));
 
         return $findings;
+    }
+
+    private function hasExplicitHtmlEscape(string $line): bool
+    {
+        return preg_match('/\b(?:e|htmlspecialchars)\s*\(/', $line) === 1;
     }
 }
