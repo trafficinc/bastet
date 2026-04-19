@@ -10,7 +10,9 @@ Static security scanner for PHP projects.
 composer require --dev trafficinc/bastet
 ```
 
-For local development from the Wayfinder workspace, use a Composer path repository that points at `../bastet`.
+[Internal note]
+
+[For local development from the Wayfinder workspace, use a Composer path repository that points at `../bastet`.]
 
 ## Usage
 
