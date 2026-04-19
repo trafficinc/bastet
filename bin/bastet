@@ -1,0 +1,33 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoloadCandidates = [
+    $GLOBALS['_composer_autoload_path'] ?? null,
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+$autoload = null;
+
+foreach ($autoloadCandidates as $candidate) {
+    if (! is_string($candidate) || $candidate === '') {
+        continue;
+    }
+
+    if (is_file($candidate)) {
+        $autoload = $candidate;
+        break;
+    }
+}
+
+if ($autoload === null) {
+    fwrite(STDERR, "Bastet autoload file was not found. Run composer install in the consuming project or bastet package first.\n");
+
+    exit(1);
+}
+
+require $autoload;
+
+exit((new \Bastet\Cli\Application())->run($argv));
