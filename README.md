@@ -2,7 +2,7 @@
 
 Static security scanner for PHP projects.
 
-`Bastet` is a dependency-light CLI tool for detecting common security vulnerabilities in PHP codebases. It ships as a Composer package with a `vendor/bin/bastet` executable.
+`Bastet` is a dependency-light CLI tool for detecting common security vulnerabilities in PHP codebases. It is designed to work especially well with [`wayfinder-core`](https://github.com/trafficinc/wayfinder-core) projects, while remaining usable on generic PHP applications. It ships as a Composer package with a `vendor/bin/bastet` executable.
 
 ## Install
 
@@ -22,6 +22,12 @@ vendor/bin/bastet . --min-severity high
 vendor/bin/bastet . --format json --output bastet-report.json
 ```
 
+## Framework Support
+
+Bastet scans generic PHP code, but some rules include framework-aware heuristics to improve signal for `wayfinder-core` style applications and similar PHP projects.
+
+For example, XSS detection treats explicit HTML escaping such as `htmlspecialchars(...)` and `e(...)` as safe output patterns.
+
 ## Options
 
 | Flag | Short | Description |
@@ -31,7 +37,7 @@ vendor/bin/bastet . --format json --output bastet-report.json
 | `--output <file>` | `-o` | Write report to file instead of stdout |
 | `--min-severity <s>` | `-s` | Minimum severity: `critical` `high` `medium` `low` `info` |
 | `--exclude <pattern>` | `-e` | Exclude paths matching pattern |
-| `--no-color` | | Disable ANSI colour output |
+| `--no-color` | | Disable ANSI color output |
 | `--list-rules` | | Print all rule IDs and exit |
 | `--help` | `-h` | Print help and exit |
 
