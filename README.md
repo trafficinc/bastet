@@ -17,9 +17,6 @@ The scanner now uses an AST-backed taint pipeline for core PHP code paths:
 composer require --dev trafficinc/bastet
 ```
 
-[Internal note]
-
-[For local development from the Wayfinder workspace, use a Composer path repository that points at `../bastet`.]
 
 ## Usage
 
