@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace Bastet\Core;
 
+use Bastet\Analysis\ProjectAnalyzer;
+use Bastet\Checkers\CommandInjectionChecker;
+use Bastet\Checkers\FileInclusionChecker;
+use Bastet\Checkers\SqlInjectionChecker;
+use Bastet\Checkers\XssChecker;
+
 final class Scanner
 {
     /** @var Rule[] */
@@ -14,9 +20,12 @@ final class Scanner
 
     private Severity $minimumSeverity;
 
+    private ProjectAnalyzer $projectAnalyzer;
+
     public function __construct(Severity $minimumSeverity = Severity::Info)
     {
         $this->minimumSeverity = $minimumSeverity;
+        $this->projectAnalyzer = new ProjectAnalyzer();
     }
 
     public function addRule(Rule $rule): void
@@ -46,11 +55,22 @@ final class Scanner
                 continue;
             }
             $lines = explode("\n", $source);
+            $isPhpFile = strtolower(pathinfo($file, PATHINFO_EXTENSION)) === 'php';
+            $isBladeTemplate = str_ends_with($file, '.blade.php');
+            $astBacked = $isPhpFile && ! $isBladeTemplate && $this->projectAnalyzer->isAvailable();
+
+            if ($astBacked) {
+                $findings = array_merge($findings, $this->runAstAnalysis($file, $source));
+            }
 
             foreach ($this->rules as $rule) {
                 $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 $allowed = $rule->extensions();
                 if (!empty($allowed) && !in_array($ext, $allowed, true)) {
+                    continue;
+                }
+
+                if ($astBacked && in_array($rule->id(), ['SEC001', 'SEC002', 'SEC003', 'SEC004'], true)) {
                     continue;
                 }
 
@@ -76,6 +96,36 @@ final class Scanner
             }
             return $a->line <=> $b->line;
         });
+
+        return $findings;
+    }
+
+    /**
+     * @return Finding[]
+     */
+    private function runAstAnalysis(string $file, string $source): array
+    {
+        if (! $this->projectAnalyzer->isAvailable()) {
+            return [];
+        }
+
+        $analysis = $this->projectAnalyzer->analyzeFile($file, $source);
+
+        if ($analysis === null) {
+            return [];
+        }
+
+        $checkers = [
+            new SqlInjectionChecker(),
+            new XssChecker(),
+            new CommandInjectionChecker(),
+            new FileInclusionChecker(),
+        ];
+
+        $findings = [];
+        foreach ($checkers as $checker) {
+            $findings = array_merge($findings, $checker->check($analysis));
+        }
 
         return $findings;
     }

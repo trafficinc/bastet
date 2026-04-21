@@ -92,6 +92,12 @@ final class ConsoleReporter implements ReporterInterface
             $lines[] = $this->color(self::DIM, "      » {$snippet}");
         }
         $lines[] = "      {$f->explanation}";
+        if (($source = $f->details['source'] ?? null) !== null) {
+            $lines[] = $this->color(self::DIM, "      Source: {$source}");
+        }
+        if (($path = $f->details['path'] ?? null) !== null && is_array($path) && $path !== []) {
+            $lines[] = $this->color(self::DIM, '      Path: ' . implode(' -> ', $path));
+        }
         $lines[] = $this->color(self::GREEN, "      Fix: ") . $f->remediation;
         $lines[] = '';
 

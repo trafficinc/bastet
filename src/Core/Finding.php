@@ -16,6 +16,7 @@ final readonly class Finding
         public string   $remediation,
         public float    $confidence,
         public string   $ruleId,
+        public array    $details = [],
     ) {}
 
     public function toArray(): array
@@ -30,6 +31,7 @@ final readonly class Finding
             'remediation' => $this->remediation,
             'confidence'  => $this->confidence,
             'rule_id'     => $this->ruleId,
+            'details'     => $this->details,
         ];
     }
 }

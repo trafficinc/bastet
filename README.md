@@ -2,7 +2,14 @@
 
 Static security scanner for PHP projects.
 
-`Bastet` is a dependency-light CLI tool for detecting common security vulnerabilities in PHP codebases. It is designed to work especially well with [`wayfinder-core`](https://github.com/trafficinc/wayfinder-core) projects, while remaining usable on generic PHP applications. It ships as a Composer package with a `vendor/bin/bastet` executable.
+`Bastet` is a CLI tool for detecting common security vulnerabilities in PHP codebases. It is designed to work especially well with [`wayfinder-core`](https://github.com/trafficinc/wayfinder-core) projects, while remaining usable on generic PHP applications. It ships as a Composer package with a `vendor/bin/bastet` executable.
+
+The scanner now uses an AST-backed taint pipeline for core PHP code paths:
+
+- Parses PHP into a raw AST
+- Bastet normalizes that into a smaller security-focused AST
+- a flow graph and taint engine track data from sources to sinks
+- findings include source, sink, and propagation path metadata when available
 
 ## Install
 
@@ -51,6 +58,18 @@ For example, XSS detection treats explicit HTML escaping such as `htmlspecialcha
 
 ## Development
 
-Rules live under `src/Rules/`, shared scanner primitives live under `src/Core/`, and reporters live under `src/Reporting/`.
+The scanner is now hybrid:
+
+- `src/Analysis/`, `src/Parsing/`, `src/SecurityAst/`, `src/Flow/`, and `src/Taint/` contain the AST and taint analysis engine
+- `src/Checkers/` contains sink-specific analyzers for SQL injection, XSS, command injection, and file inclusion/path traversal
+- `src/Rules/` still contains regex/config-style checks that are useful outside the AST-backed path
+- `src/Core/` and `src/Reporting/` keep the CLI, finding model, orchestration, and output format stable
+- `tests/run.php` executes fixture-based regression tests for the AST taint pipeline
+
+Run local Bastet tests with:
+
+```bash
+php tests/run.php
+```
 
 See [docs/ADDING_RULES.md](docs/ADDING_RULES.md) for the extension workflow.
