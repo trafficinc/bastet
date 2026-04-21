@@ -6,6 +6,7 @@ namespace Bastet\Flow;
 
 use Bastet\SecurityAst\Expression;
 use Bastet\SecurityAst\Expression\BinaryOperation;
+use Bastet\SecurityAst\Expression\ConditionalExpression;
 use Bastet\SecurityAst\Expression\FunctionCall;
 use Bastet\SecurityAst\Expression\LiteralValue;
 use Bastet\SecurityAst\Expression\MethodCall;
@@ -15,6 +16,7 @@ use Bastet\SecurityAst\Program;
 use Bastet\SecurityAst\Statement;
 use Bastet\SecurityAst\Statement\Assignment;
 use Bastet\SecurityAst\Statement\ExpressionStatement;
+use Bastet\SecurityAst\Statement\ForeachStatement;
 use Bastet\SecurityAst\Statement\FunctionDefinition;
 use Bastet\SecurityAst\Statement\IfStatement;
 use Bastet\SecurityAst\Statement\ReturnStatement;
@@ -44,9 +46,7 @@ final class FlowGraphBuilder
         $this->buildFunctionSummaries($program);
 
         foreach ($program->statements as $statement) {
-            if (! $statement instanceof FunctionDefinition) {
-                $this->buildStatement($statement);
-            }
+            $this->buildStatement($statement);
         }
 
         return $this->graph;
@@ -57,19 +57,19 @@ final class FlowGraphBuilder
         if ($statement instanceof Assignment) {
             $valueId = $this->buildExpression($statement->value);
             $targetId = $this->newNodeId('var');
-            $label = '$' . $statement->target->name;
+            $key = $this->variableKey($statement->target);
 
             $this->graph->addNode(new FlowNode(
                 id: $targetId,
                 kind: 'variable',
-                label: $statement->target->propertyPath ?? $label,
+                label: $key,
                 file: $statement->meta->file,
                 line: $statement->meta->line,
                 inputs: [$valueId],
                 attributes: ['name' => $statement->target->name],
             ));
             $this->graph->addEdge(new FlowEdge($valueId, $targetId, 'ASSIGNMENT'));
-            $this->variableDefs[$label] = $targetId;
+            $this->variableDefs[$key] = $targetId;
 
             return;
         }
@@ -81,20 +81,57 @@ final class FlowGraphBuilder
 
         if ($statement instanceof IfStatement) {
             $this->buildExpression($statement->condition);
-            foreach ($statement->thenBlock as $nested) {
-                $this->buildStatement($nested);
-            }
-            foreach ($statement->elseBlock as $nested) {
-                $this->buildStatement($nested);
-            }
+            $baselineDefs = $this->variableDefs;
+            $thenDefs = $this->buildScopedStatements($statement->thenBlock, $baselineDefs);
+            $elseDefs = $this->buildScopedStatements($statement->elseBlock, $baselineDefs);
+            $this->variableDefs = $this->mergeVariableDefinitions($baselineDefs, $thenDefs, $elseDefs, $statement->meta->file, $statement->meta->line);
             return;
+        }
+
+        if ($statement instanceof FunctionDefinition) {
+            $this->buildFunctionBody($statement);
+            return;
+        }
+
+        if ($statement instanceof ForeachStatement) {
+            $baselineDefs = $this->variableDefs;
+            $iterableId = $this->buildExpression($statement->iterable);
+
+            $loopDefs = $baselineDefs;
+            $loopDefs[$this->variableKey($statement->valueVariable)] = $this->createAssignedVariableNode(
+                $statement->valueVariable,
+                $iterableId,
+                $statement->meta->file,
+                $statement->meta->line,
+            );
+
+            if ($statement->keyVariable !== null) {
+                $keySourceId = $this->newNodeId('literal');
+                $this->graph->addNode(new FlowNode(
+                    id: $keySourceId,
+                    kind: 'literal',
+                    label: 'foreach-key',
+                    file: $statement->meta->file,
+                    line: $statement->meta->line,
+                ));
+                $loopDefs[$this->variableKey($statement->keyVariable)] = $this->createAssignedVariableNode(
+                    $statement->keyVariable,
+                    $keySourceId,
+                    $statement->meta->file,
+                    $statement->meta->line,
+                );
+            }
+
+            $loopDefs = $this->buildScopedStatements($statement->body, $loopDefs);
+            $this->variableDefs = $this->mergeVariableDefinitions($baselineDefs, $loopDefs, $baselineDefs, $statement->meta->file, $statement->meta->line);
         }
     }
 
     private function buildExpression(Expression $expression): string
     {
         if ($expression instanceof Variable) {
-            $existing = $this->variableDefs['$' . $expression->name] ?? null;
+            $key = $this->variableKey($expression);
+            $existing = $this->variableDefs[$key] ?? null;
             if ($existing !== null && ! $expression->isSuperglobal) {
                 return $existing;
             }
@@ -103,7 +140,7 @@ final class FlowGraphBuilder
             $this->graph->addNode(new FlowNode(
                 id: $id,
                 kind: $expression->isSuperglobal ? 'source' : 'variable',
-                label: $expression->propertyPath ?? ('$' . $expression->name),
+                label: $key,
                 file: $expression->meta->file,
                 line: $expression->meta->line,
                 attributes: [
@@ -113,7 +150,7 @@ final class FlowGraphBuilder
             ));
 
             if (! $expression->isSuperglobal) {
-                $this->variableDefs['$' . $expression->name] = $id;
+                $this->variableDefs[$key] = $id;
             }
 
             return $id;
@@ -149,6 +186,27 @@ final class FlowGraphBuilder
             return $id;
         }
 
+        if ($expression instanceof ConditionalExpression) {
+            $condition = $this->buildExpression($expression->condition);
+            $ifTrue = $expression->ifTrue !== null
+                ? $this->buildExpression($expression->ifTrue)
+                : $condition;
+            $ifFalse = $this->buildExpression($expression->ifFalse);
+            $id = $this->newNodeId('conditional');
+            $this->graph->addNode(new FlowNode(
+                id: $id,
+                kind: 'conditional_expression',
+                label: 'conditional',
+                file: $expression->meta->file,
+                line: $expression->meta->line,
+                inputs: [$condition, $ifTrue, $ifFalse],
+            ));
+            $this->graph->addEdge(new FlowEdge($condition, $id, 'CONDITION'));
+            $this->graph->addEdge(new FlowEdge($ifTrue, $id, 'BRANCH'));
+            $this->graph->addEdge(new FlowEdge($ifFalse, $id, 'BRANCH'));
+            return $id;
+        }
+
         if ($expression instanceof FunctionCall) {
             return $this->buildCallNode(
                 kind: 'function_call',
@@ -161,10 +219,10 @@ final class FlowGraphBuilder
         }
 
         if ($expression instanceof MethodCall) {
-            $callableName = strtolower($expression->method);
+            $callableName = $expression->resolvedName ?? strtolower($expression->method);
             $fullCallableName = $callableName;
 
-            if ($expression->object instanceof Variable) {
+            if ($expression->resolvedName === null && $expression->object instanceof Variable) {
                 $fullCallableName = strtolower($expression->object->name) . '::' . strtolower($expression->method);
 
                 if (
@@ -284,11 +342,11 @@ final class FlowGraphBuilder
             $changed = false;
 
             foreach ($functions as $function) {
-                $existing = $this->functionRegistry->summary($function->name);
+                $existing = $this->functionRegistry->summary($function->canonicalName);
                 $summary = $summaryBuilder->build($function);
 
                 if (! $existing instanceof FunctionSummary || ! $existing->equals($summary)) {
-                    $this->functionRegistry->addSummary($function->name, $summary);
+                    $this->functionRegistry->addSummary($function->canonicalName, $summary);
                     $changed = true;
                 }
             }
@@ -299,10 +357,142 @@ final class FlowGraphBuilder
         }
     }
 
+    private function buildFunctionBody(FunctionDefinition $function): void
+    {
+        $previousDefs = $this->variableDefs;
+        $this->variableDefs = [];
+
+        if ($function->ownerClass !== null) {
+            $thisNodeId = $this->newNodeId('var');
+            $this->graph->addNode(new FlowNode(
+                id: $thisNodeId,
+                kind: 'variable',
+                label: '$this',
+                file: $function->meta->file,
+                line: $function->meta->line,
+                attributes: ['name' => 'this'],
+            ));
+            $this->variableDefs['$this'] = $thisNodeId;
+        }
+
+        foreach ($function->parameters as $parameter) {
+            $paramNodeId = $this->newNodeId('var');
+            $label = '$' . $parameter;
+            $this->graph->addNode(new FlowNode(
+                id: $paramNodeId,
+                kind: 'variable',
+                label: $label,
+                file: $function->meta->file,
+                line: $function->meta->line,
+                attributes: ['name' => $parameter, 'parameter' => true],
+            ));
+            $this->variableDefs[$label] = $paramNodeId;
+        }
+
+        foreach ($function->body as $nested) {
+            $this->buildStatement($nested);
+        }
+
+        $this->variableDefs = $previousDefs;
+    }
+
     private function newNodeId(string $prefix): string
     {
         $this->idCounter++;
 
         return $prefix . '_' . $this->idCounter;
+    }
+
+    /**
+     * @param list<Statement> $statements
+     * @param array<string, string> $startingDefs
+     * @return array<string, string>
+     */
+    private function buildScopedStatements(array $statements, array $startingDefs): array
+    {
+        $previousDefs = $this->variableDefs;
+        $this->variableDefs = $startingDefs;
+
+        foreach ($statements as $statement) {
+            $this->buildStatement($statement);
+        }
+
+        $scopedDefs = $this->variableDefs;
+        $this->variableDefs = $previousDefs;
+
+        return $scopedDefs;
+    }
+
+    /**
+     * @param array<string, string> $baselineDefs
+     * @param array<string, string> $leftDefs
+     * @param array<string, string> $rightDefs
+     * @return array<string, string>
+     */
+    private function mergeVariableDefinitions(array $baselineDefs, array $leftDefs, array $rightDefs, string $file, int $line): array
+    {
+        $merged = $baselineDefs;
+        $keys = array_values(array_unique(array_merge(
+            array_keys($baselineDefs),
+            array_keys($leftDefs),
+            array_keys($rightDefs),
+        )));
+
+        foreach ($keys as $key) {
+            $left = $leftDefs[$key] ?? $baselineDefs[$key] ?? null;
+            $right = $rightDefs[$key] ?? $baselineDefs[$key] ?? null;
+
+            if ($left === null && $right === null) {
+                continue;
+            }
+
+            if ($left === $right) {
+                $merged[$key] = $left;
+                continue;
+            }
+
+            $mergeId = $this->newNodeId('merge');
+            $inputs = array_values(array_unique(array_filter([$left, $right])));
+            $this->graph->addNode(new FlowNode(
+                id: $mergeId,
+                kind: 'merge',
+                label: 'merge(' . $key . ')',
+                file: $file,
+                line: $line,
+                inputs: $inputs,
+            ));
+
+            foreach ($inputs as $inputId) {
+                $this->graph->addEdge(new FlowEdge($inputId, $mergeId, 'MERGE'));
+            }
+
+            $merged[$key] = $mergeId;
+        }
+
+        return $merged;
+    }
+
+    private function createAssignedVariableNode(Variable $variable, string $valueId, string $file, int $line): string
+    {
+        $targetId = $this->newNodeId('var');
+        $key = $this->variableKey($variable);
+
+        $this->graph->addNode(new FlowNode(
+            id: $targetId,
+            kind: 'variable',
+            label: $key,
+            file: $file,
+            line: $line,
+            inputs: [$valueId],
+            attributes: ['name' => $variable->name],
+        ));
+        $this->graph->addEdge(new FlowEdge($valueId, $targetId, 'ASSIGNMENT'));
+
+        return $targetId;
+    }
+
+    private function variableKey(Variable $variable): string
+    {
+        return $variable->propertyPath ?? ('$' . $variable->name);
     }
 }

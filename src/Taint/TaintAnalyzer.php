@@ -105,10 +105,7 @@ final class TaintAnalyzer
                         $sourceLabel = $inputRecords[$inputId]->sourceLabel;
                     }
 
-                    $sanitizedFor = array_values(array_unique(array_merge(
-                        $sanitizedFor,
-                        $inputRecords[$inputId]->sanitizedFor,
-                    )));
+                    $sanitizedFor = $this->mergeContexts($sanitizedFor, $inputRecords[$inputId]->sanitizedFor);
                 }
             }
 
@@ -151,7 +148,7 @@ final class TaintAnalyzer
             }
 
             if ($record->state === TaintState::Sanitized) {
-                $sanitizedFor = array_values(array_unique(array_merge($sanitizedFor, $record->sanitizedFor)));
+                $sanitizedFor = $this->mergeContexts($sanitizedFor, $record->sanitizedFor);
                 if ($predecessor === null) {
                     $predecessor = $inputId;
                     $sourceLabel = $record->sourceLabel;
@@ -182,5 +179,21 @@ final class TaintAnalyzer
         }
 
         return count($candidate->sanitizedFor) > count($current->sanitizedFor);
+    }
+
+    /**
+     * @param list<SecurityContext> $left
+     * @param list<SecurityContext> $right
+     * @return list<SecurityContext>
+     */
+    private function mergeContexts(array $left, array $right): array
+    {
+        $merged = [];
+
+        foreach (array_merge($left, $right) as $context) {
+            $merged[$context->value] = $context;
+        }
+
+        return array_values($merged);
     }
 }

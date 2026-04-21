@@ -7,18 +7,14 @@ namespace Bastet\SecurityAst\Expression;
 use Bastet\SecurityAst\Expression;
 use Bastet\SecurityAst\NodeMeta;
 
-final readonly class MethodCall extends Expression
+final readonly class ConditionalExpression extends Expression
 {
-    /**
-     * @param list<Expression> $args
-     */
     public function __construct(
         string $id,
         NodeMeta $meta,
-        public Expression $object,
-        public string $method,
-        public ?string $resolvedName,
-        public array $args,
+        public Expression $condition,
+        public ?Expression $ifTrue,
+        public Expression $ifFalse,
     ) {
         parent::__construct($id, $meta);
     }

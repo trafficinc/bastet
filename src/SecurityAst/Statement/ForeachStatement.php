@@ -4,22 +4,22 @@ declare(strict_types=1);
 
 namespace Bastet\SecurityAst\Statement;
 
+use Bastet\SecurityAst\Expression;
 use Bastet\SecurityAst\NodeMeta;
 use Bastet\SecurityAst\Statement;
+use Bastet\SecurityAst\Expression\Variable;
 
-final readonly class FunctionDefinition extends Statement
+final readonly class ForeachStatement extends Statement
 {
     /**
-     * @param list<string> $parameters
      * @param list<Statement> $body
      */
     public function __construct(
         string $id,
         NodeMeta $meta,
-        public string $name,
-        public string $canonicalName,
-        public ?string $ownerClass,
-        public array $parameters,
+        public Expression $iterable,
+        public Variable $valueVariable,
+        public ?Variable $keyVariable,
         public array $body,
     ) {
         parent::__construct($id, $meta);

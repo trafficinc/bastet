@@ -6,6 +6,7 @@ namespace Bastet\Taint;
 
 use Bastet\SecurityAst\Expression;
 use Bastet\SecurityAst\Expression\BinaryOperation;
+use Bastet\SecurityAst\Expression\ConditionalExpression;
 use Bastet\SecurityAst\Expression\FunctionCall;
 use Bastet\SecurityAst\Expression\LiteralValue;
 use Bastet\SecurityAst\Expression\MethodCall;
@@ -14,6 +15,7 @@ use Bastet\SecurityAst\Expression\Variable;
 use Bastet\SecurityAst\Statement;
 use Bastet\SecurityAst\Statement\Assignment;
 use Bastet\SecurityAst\Statement\ExpressionStatement;
+use Bastet\SecurityAst\Statement\ForeachStatement;
 use Bastet\SecurityAst\Statement\FunctionDefinition;
 use Bastet\SecurityAst\Statement\IfStatement;
 use Bastet\SecurityAst\Statement\ReturnStatement;
@@ -28,8 +30,13 @@ final class FunctionSummaryBuilder
     {
         $environment = [];
 
+        if ($function->ownerClass !== null) {
+            $environment['$this'] = new SummaryValue(argIndexes: [0]);
+        }
+
         foreach ($function->parameters as $index => $parameter) {
-            $environment[$parameter] = new SummaryValue(argIndexes: [$index]);
+            $argIndex = $function->ownerClass !== null ? $index + 1 : $index;
+            $environment['$' . $parameter] = new SummaryValue(argIndexes: [$argIndex]);
         }
 
         $returns = $this->summarizeStatements($function->body, $environment);
@@ -60,7 +67,7 @@ final class FunctionSummaryBuilder
 
             $sanitizedFor = $sanitizedFor === null
                 ? $returnValue->sanitizedFor
-                : array_values(array_intersect($sanitizedFor, $returnValue->sanitizedFor));
+                : $this->intersectContexts($sanitizedFor, $returnValue->sanitizedFor);
         }
 
         return new FunctionSummary(
@@ -82,7 +89,7 @@ final class FunctionSummaryBuilder
 
         foreach ($statements as $statement) {
             if ($statement instanceof Assignment) {
-                $environment[$statement->target->name] = $this->evaluateExpression($statement->value, $environment);
+                $environment[$this->variableKey($statement->target)] = $this->evaluateExpression($statement->value, $environment);
                 continue;
             }
 
@@ -101,6 +108,21 @@ final class FunctionSummaryBuilder
 
                 $environment = $this->mergeEnvironments($environment, $thenEnvironment, $elseEnvironment);
                 $returns = array_merge($returns, $thenReturns, $elseReturns);
+                continue;
+            }
+
+            if ($statement instanceof ForeachStatement) {
+                $loopEnvironment = $environment;
+                $iterableValue = $this->evaluateExpression($statement->iterable, $environment);
+                $loopEnvironment[$this->variableKey($statement->valueVariable)] = $iterableValue;
+
+                if ($statement->keyVariable !== null) {
+                    $loopEnvironment[$this->variableKey($statement->keyVariable)] = SummaryValue::clean();
+                }
+
+                $loopReturns = $this->summarizeStatements($statement->body, $loopEnvironment);
+                $environment = $this->mergeEnvironments($environment, $loopEnvironment, $environment);
+                $returns = array_merge($returns, $loopReturns);
                 continue;
             }
 
@@ -133,7 +155,7 @@ final class FunctionSummaryBuilder
 
             $sanitizedFor = [];
             if ($left->sanitizedFor !== [] && $right->sanitizedFor !== []) {
-                $sanitizedFor = array_values(array_intersect($left->sanitizedFor, $right->sanitizedFor));
+                $sanitizedFor = $this->intersectContexts($left->sanitizedFor, $right->sanitizedFor);
             }
 
             $merged[$name] = new SummaryValue(
@@ -153,7 +175,9 @@ final class FunctionSummaryBuilder
     private function evaluateExpression(Expression $expression, array $environment): SummaryValue
     {
         if ($expression instanceof Variable) {
-            return $environment[$expression->name]
+            $key = $this->variableKey($expression);
+
+            return $environment[$key]
                 ?? ($expression->isSuperglobal
                     ? new SummaryValue(taintedWithoutArgs: true, sourceLabel: $expression->propertyPath ?? '$' . $expression->name)
                     : SummaryValue::clean());
@@ -169,13 +193,22 @@ final class FunctionSummaryBuilder
                 ->withoutSanitization();
         }
 
+        if ($expression instanceof ConditionalExpression) {
+            $ifTrue = $expression->ifTrue !== null
+                ? $this->evaluateExpression($expression->ifTrue, $environment)
+                : $this->evaluateExpression($expression->condition, $environment);
+            $ifFalse = $this->evaluateExpression($expression->ifFalse, $environment);
+
+            return $this->mergeAlternativeValues($ifTrue, $ifFalse);
+        }
+
         if ($expression instanceof FunctionCall) {
             return $this->evaluateCall($expression->name, $expression->args, $environment);
         }
 
         if ($expression instanceof MethodCall) {
-            $name = strtolower($expression->method);
-            if ($expression->object instanceof Variable) {
+            $name = $expression->resolvedName ?? strtolower($expression->method);
+            if ($expression->resolvedName === null && $expression->object instanceof Variable) {
                 $fullName = strtolower($expression->object->name) . '::' . strtolower($expression->method);
                 if (
                     $this->registry->isSourceCall($fullName)
@@ -254,5 +287,48 @@ final class FunctionSummaryBuilder
         }
 
         return $value;
+    }
+
+    private function variableKey(Variable $variable): string
+    {
+        return $variable->propertyPath ?? ('$' . $variable->name);
+    }
+
+    private function mergeAlternativeValues(SummaryValue $left, SummaryValue $right): SummaryValue
+    {
+        $sanitizedFor = [];
+
+        if ($left->sanitizedFor !== [] && $right->sanitizedFor !== []) {
+            $sanitizedFor = $this->intersectContexts($left->sanitizedFor, $right->sanitizedFor);
+        }
+
+        return new SummaryValue(
+            argIndexes: array_values(array_unique(array_merge($left->argIndexes, $right->argIndexes))),
+            sanitizedFor: $sanitizedFor,
+            taintedWithoutArgs: $left->taintedWithoutArgs || $right->taintedWithoutArgs,
+            sourceLabel: $left->sourceLabel ?? $right->sourceLabel,
+        );
+    }
+
+    /**
+     * @param list<SecurityContext> $left
+     * @param list<SecurityContext> $right
+     * @return list<SecurityContext>
+     */
+    private function intersectContexts(array $left, array $right): array
+    {
+        $rightByValue = [];
+        foreach ($right as $context) {
+            $rightByValue[$context->value] = $context;
+        }
+
+        $intersection = [];
+        foreach ($left as $context) {
+            if (isset($rightByValue[$context->value])) {
+                $intersection[$context->value] = $context;
+            }
+        }
+
+        return array_values($intersection);
     }
 }

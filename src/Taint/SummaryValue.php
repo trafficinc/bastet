@@ -26,7 +26,7 @@ final readonly class SummaryValue
     {
         return new self(
             argIndexes: array_values(array_unique(array_merge($this->argIndexes, $other->argIndexes))),
-            sanitizedFor: array_values(array_unique(array_merge($this->sanitizedFor, $other->sanitizedFor))),
+            sanitizedFor: $this->uniqueContexts(array_merge($this->sanitizedFor, $other->sanitizedFor)),
             taintedWithoutArgs: $this->taintedWithoutArgs || $other->taintedWithoutArgs,
             sourceLabel: $this->sourceLabel ?? $other->sourceLabel,
         );
@@ -36,7 +36,7 @@ final readonly class SummaryValue
     {
         return new self(
             argIndexes: $this->argIndexes,
-            sanitizedFor: array_values(array_unique($contexts)),
+            sanitizedFor: $this->uniqueContexts($contexts),
             taintedWithoutArgs: $this->taintedWithoutArgs,
             sourceLabel: $this->sourceLabel,
         );
@@ -55,5 +55,20 @@ final readonly class SummaryValue
     public function dependsOnInput(): bool
     {
         return $this->argIndexes !== [] || $this->taintedWithoutArgs;
+    }
+
+    /**
+     * @param list<SecurityContext> $contexts
+     * @return list<SecurityContext>
+     */
+    private function uniqueContexts(array $contexts): array
+    {
+        $unique = [];
+
+        foreach ($contexts as $context) {
+            $unique[$context->value] = $context;
+        }
+
+        return array_values($unique);
     }
 }
