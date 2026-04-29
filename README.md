@@ -2,7 +2,7 @@
 
 Static security scanner for PHP projects.
 
-`Bastet` is a CLI tool for detecting common security vulnerabilities in PHP codebases. It is designed to work especially well with [`stackmint`](https://github.com/trafficinc/stackmint) projects, while remaining usable on generic PHP applications. It ships as a Composer package with a `vendor/bin/bastet` executable.
+`Bastet` is a CLI tool for detecting common security vulnerabilities in PHP codebases. It remains usable on generic PHP applications. It ships as a Composer package with a `vendor/bin/bastet` executable.
 
 The scanner now uses an AST-backed taint pipeline for core PHP code paths:
 
