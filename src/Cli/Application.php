@@ -92,13 +92,15 @@ final class Application
             $scanner->addRule($rule);
         }
 
+        $targets = $this->expandTargetPaths($target);
+
         $start = microtime(true);
-        $findings = $scanner->scan($target);
+        $findings = $scanner->scanTargets($targets);
         $elapsed = microtime(true) - $start;
 
         $meta = [
-            'target' => $target,
-            'scannedFiles' => $this->countScannedFiles($target, $exclusions),
+            'target' => implode(', ', $targets),
+            'scannedFiles' => $this->countScannedFiles($targets, $exclusions),
             'elapsed' => $elapsed,
         ];
 
@@ -122,6 +124,25 @@ final class Application
         );
 
         return count($serious) > 0 ? 1 : 0;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function expandTargetPaths(string $target): array
+    {
+        if (! is_dir($target) || basename($target) !== 'app') {
+            return [$target];
+        }
+
+        $projectRoot = dirname($target);
+        $resourceViews = $projectRoot . '/resources/views';
+
+        if (! is_dir($resourceViews)) {
+            return [$target];
+        }
+
+        return [$target, $resourceViews];
     }
 
     /**
@@ -166,40 +187,55 @@ final class Application
     /**
      * @param list<string> $exclusions
      */
-    private function countScannedFiles(string $target, array $exclusions): int
+    private function countScannedFiles(array $targets, array $exclusions): int
     {
-        if (is_file($target)) {
-            return 1;
-        }
-
         $count = 0;
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($target, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::LEAVES_ONLY,
-        );
+        $seen = [];
 
-        foreach ($iterator as $file) {
-            $path = $file->getRealPath();
+        foreach ($targets as $target) {
+            if (is_file($target)) {
+                $realPath = realpath($target);
 
-            if ($path === false) {
+                if ($realPath !== false && ! isset($seen[$realPath]) && ! $this->isExcluded($realPath, $exclusions)) {
+                    $seen[$realPath] = true;
+                    $count++;
+                }
+
                 continue;
             }
 
-            $excluded = false;
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($target, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY,
+            );
 
-            foreach ($exclusions as $exclusion) {
-                if (str_contains($path, $exclusion) || fnmatch($exclusion, $path)) {
-                    $excluded = true;
-                    break;
+            foreach ($iterator as $file) {
+                $path = $file->getRealPath();
+
+                if ($path === false || isset($seen[$path]) || $this->isExcluded($path, $exclusions)) {
+                    continue;
                 }
-            }
 
-            if (! $excluded) {
+                $seen[$path] = true;
                 $count++;
             }
         }
 
         return $count;
+    }
+
+    /**
+     * @param list<string> $exclusions
+     */
+    private function isExcluded(string $path, array $exclusions): bool
+    {
+        foreach ($exclusions as $exclusion) {
+            if (str_contains($path, $exclusion) || fnmatch($exclusion, $path)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function help(): string
@@ -214,7 +250,7 @@ final class Application
     bastet [options] [path]
 
   ARGUMENTS
-    path                    Target directory or file to scan
+    path                    Target directory or file to scan. In Wayfinder apps, targeting app also scans resources/views.
 
   OPTIONS
     -t, --target <path>     Target path (alternative to positional argument)

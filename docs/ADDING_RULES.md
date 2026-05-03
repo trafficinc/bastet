@@ -87,7 +87,8 @@ From a consuming app such as `your_app/`:
 
 ```bash
 php vendor/bin/bastet --list-rules
+php vendor/bin/bastet .
 php vendor/bin/bastet app
 ```
 
-Because the app uses a Composer path repository for `../bastet`, local package changes are reflected immediately.
+Because the app uses a Composer path repository for `../bastet`, local package changes are reflected immediately. In Wayfinder/Stackmint apps, scanning `app` also includes sibling `resources/views` so application templates are covered.

@@ -46,7 +46,24 @@ final class Scanner
      */
     public function scan(string $targetPath): array
     {
-        $files = $this->collectFiles($targetPath);
+        return $this->scanTargets([$targetPath]);
+    }
+
+    /**
+     * Scan multiple target paths and return all findings.
+     *
+     * @param list<string> $targetPaths
+     * @return Finding[]
+     */
+    public function scanTargets(array $targetPaths): array
+    {
+        $files = [];
+
+        foreach ($targetPaths as $targetPath) {
+            $files = array_merge($files, $this->collectFiles($targetPath));
+        }
+
+        $files = array_values(array_unique($files));
         $findings = [];
 
         foreach ($files as $file) {

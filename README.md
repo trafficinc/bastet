@@ -21,6 +21,7 @@ composer require --dev trafficinc/bastet
 ## Usage
 
 ```bash
+vendor/bin/bastet .
 vendor/bin/bastet app
 vendor/bin/bastet . --min-severity high
 vendor/bin/bastet . --format json --output bastet-report.json
@@ -44,6 +45,8 @@ For example, XSS detection treats explicit HTML escaping such as `htmlspecialcha
 | `--no-color` | | Disable ANSI color output |
 | `--list-rules` | | Print all rule IDs and exit |
 | `--help` | `-h` | Print help and exit |
+
+For Wayfinder/Stackmint apps, scanning the project root is preferred. If you scan the `app` directory directly, Bastet also includes sibling `resources/views` so developer-owned templates are covered by the current view convention.
 
 ## Exit codes
 
