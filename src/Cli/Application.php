@@ -19,18 +19,7 @@ final class Application
     {
         error_reporting(E_ERROR | E_PARSE);
 
-        $opts = getopt('ht:f:o:s:e:', [
-            'help',
-            'target:',
-            'format:',
-            'output:',
-            'min-severity:',
-            'exclude:',
-            'no-color',
-            'list-rules',
-        ], $restIndex);
-
-        $positional = array_slice($argv, $restIndex);
+        [$opts, $positional] = $this->parseArguments($argv);
 
         if (isset($opts['h']) || isset($opts['help'])) {
             fwrite(STDOUT, $this->help());
@@ -143,6 +132,93 @@ final class Application
         }
 
         return [$target, $resourceViews];
+    }
+
+    /**
+     * Parse options regardless of whether they appear before or after the target path.
+     *
+     * @param list<string> $argv
+     * @return array{0: array<string, mixed>, 1: list<string>}
+     */
+    private function parseArguments(array $argv): array
+    {
+        $opts = [];
+        $positional = [];
+        $valueOptions = [
+            '-t' => 't',
+            '--target' => 'target',
+            '-f' => 'f',
+            '--format' => 'format',
+            '-o' => 'o',
+            '--output' => 'output',
+            '-s' => 's',
+            '--min-severity' => 'min-severity',
+            '-e' => 'e',
+            '--exclude' => 'exclude',
+        ];
+        $flagOptions = [
+            '-h' => 'h',
+            '--help' => 'help',
+            '--no-color' => 'no-color',
+            '--list-rules' => 'list-rules',
+        ];
+
+        $count = count($argv);
+
+        for ($index = 1; $index < $count; $index++) {
+            $argument = $argv[$index];
+
+            if (isset($flagOptions[$argument])) {
+                $opts[$flagOptions[$argument]] = false;
+
+                continue;
+            }
+
+            if (str_starts_with($argument, '--') && str_contains($argument, '=')) {
+                [$option, $value] = explode('=', $argument, 2);
+
+                if (isset($valueOptions[$option])) {
+                    $this->setOptionValue($opts, $valueOptions[$option], $value);
+
+                    continue;
+                }
+            }
+
+            if (isset($valueOptions[$argument])) {
+                $value = $argv[$index + 1] ?? null;
+
+                if ($value === null) {
+                    $this->setOptionValue($opts, $valueOptions[$argument], '');
+
+                    continue;
+                }
+
+                $this->setOptionValue($opts, $valueOptions[$argument], $value);
+                $index++;
+
+                continue;
+            }
+
+            $positional[] = $argument;
+        }
+
+        return [$opts, $positional];
+    }
+
+    /**
+     * @param array<string, mixed> $opts
+     */
+    private function setOptionValue(array &$opts, string $key, string $value): void
+    {
+        if (in_array($key, ['e', 'exclude'], true) && isset($opts[$key])) {
+            $opts[$key] = is_array($opts[$key])
+                ? [...$opts[$key], $value]
+                : [$opts[$key], $value];
+
+            return;
+        }
+
+        $opts[$key] = $value;
     }
 
     /**

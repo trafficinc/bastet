@@ -95,13 +95,14 @@ final class Scanner
                 $ruleFindings = $rule->analyse($file, $source, $lines);
 
                 foreach ($ruleFindings as $finding) {
-                    if ($finding->severity->weight() >= $this->minimumSeverity->weight()) {
-                        $fileFindings[] = $finding;
-                    }
+                    $fileFindings[] = $finding;
                 }
             }
 
-            $findings = array_merge($findings, $this->withoutSuppressedFindings($fileFindings, $lines));
+            $findings = array_merge(
+                $findings,
+                $this->withoutSuppressedFindings($this->aboveMinimumSeverity($fileFindings), $lines),
+            );
         }
 
         // Sort: most severe first, then by file + line.
@@ -118,6 +119,18 @@ final class Scanner
         });
 
         return $findings;
+    }
+
+    /**
+     * @param Finding[] $findings
+     * @return Finding[]
+     */
+    private function aboveMinimumSeverity(array $findings): array
+    {
+        return array_values(array_filter(
+            $findings,
+            fn (Finding $finding): bool => $finding->severity->weight() >= $this->minimumSeverity->weight(),
+        ));
     }
 
     /**

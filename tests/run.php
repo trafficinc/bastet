@@ -42,6 +42,11 @@ foreach ($specFiles as $specFile) {
     }
 
     $scanner = new Scanner(Severity::Info);
+
+    if (isset($spec['min_severity']) && is_string($spec['min_severity'])) {
+        $scanner = new Scanner(Severity::fromString($spec['min_severity']));
+    }
+
     foreach (RuleRegistry::all() as $rule) {
         $scanner->addRule($rule);
     }
