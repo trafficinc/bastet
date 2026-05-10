@@ -48,6 +48,27 @@ For example, XSS detection treats explicit HTML escaping such as `htmlspecialcha
 
 For Wayfinder/Stackmint apps, scanning the project root is preferred. If you scan the `app` directory directly, Bastet also includes sibling `resources/views` so developer-owned templates are covered by the current view convention.
 
+## Suppressing Findings
+
+Use targeted suppression comments when a finding is intentional. Suppressions require a rule ID, or `all` for rare broad exceptions.
+
+```php
+// bastet-ignore-next-line SEC009 -- intentionally evaluating trusted admin script
+eval($script);
+
+eval($script); // bastet-ignore-line SEC009 -- intentionally evaluating trusted admin script
+
+// bastet-ignore-file SEC009 -- generated compatibility fixture
+```
+
+Supported forms:
+
+- `bastet-ignore-next-line <rule-id>`
+- `bastet-ignore-line <rule-id>`
+- `bastet-ignore-file <rule-id>`
+
+Multiple rule IDs can be separated with spaces or commas. Add a short reason after `--` so suppressions are auditable.
+
 ## Exit codes
 
 | Code | Meaning |

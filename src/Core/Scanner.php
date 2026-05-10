@@ -72,12 +72,13 @@ final class Scanner
                 continue;
             }
             $lines = explode("\n", $source);
+            $fileFindings = [];
             $isPhpFile = strtolower(pathinfo($file, PATHINFO_EXTENSION)) === 'php';
             $isBladeTemplate = str_ends_with($file, '.blade.php');
             $astBacked = $isPhpFile && ! $isBladeTemplate && $this->projectAnalyzer->isAvailable();
 
             if ($astBacked) {
-                $findings = array_merge($findings, $this->runAstAnalysis($file, $source));
+                $fileFindings = array_merge($fileFindings, $this->runAstAnalysis($file, $source));
             }
 
             foreach ($this->rules as $rule) {
@@ -95,10 +96,12 @@ final class Scanner
 
                 foreach ($ruleFindings as $finding) {
                     if ($finding->severity->weight() >= $this->minimumSeverity->weight()) {
-                        $findings[] = $finding;
+                        $fileFindings[] = $finding;
                     }
                 }
             }
+
+            $findings = array_merge($findings, $this->withoutSuppressedFindings($fileFindings, $lines));
         }
 
         // Sort: most severe first, then by file + line.
@@ -115,6 +118,80 @@ final class Scanner
         });
 
         return $findings;
+    }
+
+    /**
+     * @param Finding[] $findings
+     * @param string[] $lines
+     * @return Finding[]
+     */
+    private function withoutSuppressedFindings(array $findings, array $lines): array
+    {
+        if ($findings === []) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $findings,
+            fn (Finding $finding): bool => ! $this->isSuppressed($finding, $lines),
+        ));
+    }
+
+    /**
+     * Supports:
+     * - bastet-ignore-file SEC009
+     * - bastet-ignore-next-line SEC009
+     * - bastet-ignore-line SEC009
+     *
+     * Use "all" instead of a rule id only for intentional broad suppressions.
+     *
+     * @param string[] $lines
+     */
+    private function isSuppressed(Finding $finding, array $lines): bool
+    {
+        foreach ($lines as $line) {
+            if ($this->lineSuppressesRule($line, 'file', $finding->ruleId)) {
+                return true;
+            }
+        }
+
+        $lineIndex = $finding->line - 1;
+
+        if (isset($lines[$lineIndex]) && $this->lineSuppressesRule($lines[$lineIndex], 'line', $finding->ruleId)) {
+            return true;
+        }
+
+        $previousLineIndex = $lineIndex - 1;
+
+        return isset($lines[$previousLineIndex])
+            && $this->lineSuppressesRule($lines[$previousLineIndex], 'next-line', $finding->ruleId);
+    }
+
+    private function lineSuppressesRule(string $line, string $scope, string $ruleId): bool
+    {
+        if (! preg_match('/\bbastet-ignore-' . preg_quote($scope, '/') . '\b(?P<rest>[^\r\n]*)/i', $line, $match)) {
+            return false;
+        }
+
+        $ruleList = trim(explode('--', (string) $match['rest'], 2)[0]);
+
+        if ($ruleList === '') {
+            return false;
+        }
+
+        $rules = preg_split('/[\s,]+/', $ruleList, -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($rules === false || $rules === []) {
+            return false;
+        }
+
+        foreach ($rules as $rule) {
+            if (strcasecmp($rule, 'all') === 0 || strcasecmp($rule, $ruleId) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
